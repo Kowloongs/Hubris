@@ -1,0 +1,39 @@
+--echo #
+--echo # MDEV-26249: Crash in in Explain_node::print_explain_for_children while writing to the slow query log
+--echo #
+
+--source include/have_innodb.inc
+
+set @sql_tmp=@@slow_query_log;
+SET GLOBAL slow_query_log = 1;
+SET long_query_time = 0.000000;
+SET log_slow_verbosity = 'explain';
+
+CREATE TABLE t1 ( id varchar(50), KEY (id)) engine=innodb;
+SELECT * FROM (SELECT id FROM t1 GROUP BY id) dt WHERE 1=0;
+select 1;
+
+explain
+SELECT * FROM (SELECT id FROM t1 GROUP BY id) dt WHERE 1=0;
+
+SET GLOBAL slow_query_log = @sql_tmp;
+drop table t1;
+
+
+--echo #
+--echo # MDEV-31181: Server crash in subselect_uniquesubquery_engine::print
+--echo # upon EXPLAIN EXTENDED DELETE
+--echo #
+
+CREATE TABLE t1 (a INT);
+INSERT INTO t1 VALUES (1),(2);
+CREATE TABLE t2 (pk INT PRIMARY KEY);
+INSERT INTO t2 VALUES (1),(2);
+ 
+EXPLAIN EXTENDED DELETE FROM t1 WHERE a IN (SELECT pk FROM t2);
+
+drop table t1, t2;
+
+--echo #
+--echo # End of 10.4 tests
+--echo #

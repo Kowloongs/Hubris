@@ -1,0 +1,227 @@
+--echo #
+--echo # Range optimizer (and related) tests that need InnoDB.
+--echo # 
+
+--source include/have_innodb.inc
+--source include/have_debug.inc
+--source include/have_sequence.inc
+--source include/no_valgrind_without_big.inc
+
+--echo #
+--echo # MDEV-6735: Range checked for each record used with key
+--echo #
+
+create table t0(a int);
+insert into t0 values (0),(1),(2),(3),(4),(5),(6),(7),(8),(9);
+
+create table t2 ( 
+ a int,
+ b int,
+ filler1 char(100),
+ filler2 char(100),
+ filler3 char(100),
+ filler4 char(100),
+ key(a),
+ key(b)
+) engine=innodb;
+
+insert into t2 
+select 
+   seq,seq,
+  repeat('0123456789', 10), 
+  repeat('0123456789', 10), 
+  repeat('0123456789', 10),
+  repeat('0123456789', 10)
+from seq_0_to_9999;
+
+analyze table t2;
+--echo # The following must not use "Range checked for each record":
+explain select * from t0 left join t2 on t2.a <t0.a and t2.b between 50 and 250;
+
+drop table t0,t2;
+
+
+--echo #
+--echo # MDEV-10466: constructing an invalid SEL_ARG
+--echo #
+
+create table t1 (
+  pk int, a int, b int,
+  primary key (pk), index idx1(b), index idx2(b)
+) engine=innodb STATS_AUTO_RECALC=0;
+insert into t1 values (1,6,0),(2,1,0),(3,5,2),(4,8,0);
+create table t2 (c int) engine=innodb STATS_AUTO_RECALC=0;
+insert into t2 values (1),(2);
+create table t3 (d int) engine=innodb STATS_AUTO_RECALC=0;
+insert into t3 values (3),(-1),(4);
+
+set @save_optimizer_switch=@@optimizer_switch;
+set optimizer_switch='extended_keys=on';
+
+# InnoDB sometimes returns 4 other times 5 records for t1
+--replace_column 9 #
+explain
+select pk, a, b from t1,t2,t3 where b >= d and pk < c and b = '0';
+select pk, a, b from t1,t2,t3 where b >= d and pk < c and b = '0';
+
+set optimizer_switch=@save_optimizer_switch;
+
+drop table t1,t2,t3;
+
+CREATE TABLE t1 (
+  pk INT PRIMARY KEY, f1 INT, f2 CHAR(1), f3 CHAR(1),
+  KEY(f1), KEY(f2)
+) ENGINE=InnoDB;
+
+INSERT INTO t1 VALUES
+(1,4,'v',NULL),(2,6,'v',NULL),(3,7,'c',NULL),(4,1,'e',NULL),(5,0,'x',NULL),
+(6,7,'i',NULL),(7,7,'e',NULL),(8,1,'p',NULL),(9,7,'s',NULL),(10,1,'j',NULL),
+(11,5,'z',NULL),(12,2,'c',NULL),(13,0,'a',NULL),(14,1,'q',NULL),(15,8,'y',NULL),
+(16,1,'m',NULL),(17,1,'r',NULL),(18,9,'v',NULL),(19,1,'n',NULL);
+
+CREATE TABLE t2 (f4 INT, f5 CHAR(1)) ENGINE=InnoDB;
+INSERT INTO t2 VALUES (4,'q'),(NULL,'j');
+
+SELECT * FROM t1 AS t1_1, t1 AS t1_2, t2
+WHERE f5 = t1_2.f2 AND ( t1_1.f1 = 103 AND t1_1.f2 = 'o' OR t1_1.pk < f4 );
+drop table t1,t2;
+
+--echo #
+--echo # MDEV-14440: Server crash in in handler::ha_external_lock or Assertion `inited==RND'
+--echo # failed in handler::ha_rnd_end upon SELECT from partitioned table
+--echo #
+
+call mtr.add_suppression("Got error .* when reading table");
+
+set @optimizer_switch_save= @@optimizer_switch;
+set optimizer_switch='index_merge_sort_intersection=off';
+create table t0(a int);
+insert into t0 values (0),(1),(2),(3),(4),(5),(6),(7),(8),(9);
+create table t1 (
+  a int, b int, c int,
+  key(a),key(b),key(c)
+)engine=innodb;
+insert into t1
+select a.seq/10, a.seq/10, a.seq from seq_0_to_499 a, seq_0_to_4 b;
+SET @saved_dbug = @@GLOBAL.debug_dbug;
+set @@global.debug_dbug="+d,ha_index_init_fail";
+explain select * from t1 where a=10 and b=10;
+--error ER_TABLE_DEF_CHANGED
+select * from t1 where a=10 and b=10;
+DROP TABLE t0,t1;
+SET @@GLOBAL.debug_dbug = @saved_dbug;
+set @@optimizer_switch= @optimizer_switch_save;
+
+--echo # End of 10.1 tests
+
+--echo #
+--echo # MDEV-27262: Index intersection with full scan over an index
+--echo #
+
+CREATE TABLE t1 (
+  id int(10) unsigned NOT NULL AUTO_INCREMENT,
+  p char(32) DEFAULT NULL,
+  es tinyint(3) unsigned NOT NULL DEFAULT 0,
+  er tinyint(3) unsigned NOT NULL DEFAULT 0,
+  x mediumint(8) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  INDEX es (es),
+  INDEX x (x),
+  INDEX er (er,x),
+  INDEX p (p)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+insert into t1(es,er) select 0, 1 from seq_1_to_45;
+insert into t1(es,er) select 0, 2 from seq_1_to_49;
+insert into t1(es,er) select 0, 3 from seq_1_to_951;
+insert into t1(es,er) select 0, 3 from seq_1_to_1054;
+insert into t1(es,er) select 0, 6 from seq_1_to_25;
+insert into t1(es,er) select 0, 11 from seq_1_to_1;
+insert into t1(es,er) select 1, 1 from seq_1_to_45;
+insert into t1(es,er) select 1, 2 from seq_1_to_16;
+insert into t1(es,er) select 1, 3 from seq_1_to_511;
+insert into t1(es,er) select 1, 4 from seq_1_to_687;
+insert into t1(es,er) select 1, 6 from seq_1_to_50;
+insert into t1(es,er) select 1, 7 from seq_1_to_4;
+insert into t1(es,er) select 1, 11 from seq_1_to_1;
+insert into t1(es,er) select 2, 1 from seq_1_to_82;
+insert into t1(es,er) select 2, 2 from seq_1_to_82;
+insert into t1(es,er) select 2, 3 from seq_1_to_1626;
+insert into t1(es,er) select 2, 4 from seq_1_to_977;
+insert into t1(es,er) select 2, 6 from seq_1_to_33;
+insert into t1(es,er) select 2, 11 from seq_1_to_1;
+insert into t1(es,er) select 3, 1 from seq_1_to_245;
+insert into t1(es,er) select 3, 2 from seq_1_to_81;
+insert into t1(es,er) select 3, 3 from seq_1_to_852;
+insert into t1(es,er) select 3, 4 from seq_1_to_2243;
+insert into t1(es,er) select 3, 6 from seq_1_to_44;
+insert into t1(es,er) select 3, 11 from seq_1_to_1;
+insert into t1(es,er) select 4, 1 from seq_1_to_91;
+insert into t1(es,er) select 4, 2 from seq_1_to_83;
+insert into t1(es,er) select 4, 3 from seq_1_to_297;
+insert into t1(es,er) select 4, 4 from seq_1_to_2456;
+insert into t1(es,er) select 4, 6 from seq_1_to_19;
+insert into t1(es,er) select 4, 11 from seq_1_to_1;
+update t1 set p='foobar';
+update t1 set x=0;
+set @save_isp=@@innodb_stats_persistent;
+set global innodb_stats_persistent= 1;
+analyze table t1;
+
+let $q=
+SELECT * FROM t1
+  WHERE ((p = 'foo' AND er != 4) OR er = 4 ) AND (es >= 4) LIMIT 2;
+
+set optimizer_switch='index_merge_sort_intersection=on';
+eval $q;
+--replace_column 9 #
+eval EXPLAIN EXTENDED $q;
+
+set optimizer_switch='index_merge_sort_intersection=off';
+# execution of $q and explain for it led to an assertion failure in 10.4
+# (with the optimizer switch rowid_filter set to 'on')
+eval $q;
+--replace_column 9 #
+eval EXPLAIN EXTENDED $q;
+
+let $q=
+SELECT * FROM t1
+  WHERE ((p = 'foo' AND er < 6) OR er >=2 ) AND (es >= 4) LIMIT 2;
+
+set optimizer_switch='index_merge_sort_intersection=on';
+eval $q;
+--replace_column 9 #
+eval EXPLAIN EXTENDED $q;
+
+set optimizer_switch='index_merge_sort_intersection=off';
+eval $q;
+--replace_column 9 #
+eval EXPLAIN EXTENDED $q;
+
+set optimizer_switch='index_merge_sort_intersection=default';
+
+set global innodb_stats_persistent= @save_isp;
+DROP TABLE t1;
+
+--echo # End of 10.2 tests
+
+--echo #
+--echo # MDEV-19634: Assertion `0' failed in row_sel_convert_mysql_key_to_innobase,
+--echo # [Warning] InnoDB: Using a partial-field key prefix in search
+--echo #
+
+CREATE TABLE t1 (
+    pk INT,
+    a VARCHAR(1),
+    b INT,
+    PRIMARY KEY (pk),
+    KEY (a,b)
+) ENGINE=InnoDB;
+
+INSERT INTO t1 VALUES (1,'a',1),(2,'b',2);
+
+explain SELECT a FROM t1 WHERE pk < 0 AND a <= 'w' and b > 0;
+SELECT a FROM t1 WHERE pk < 0 AND a <= 'w' and b > 0;
+drop table t1;
+
+-- echo # End of 10.4 tests
