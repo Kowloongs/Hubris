@@ -1,9 +1,8 @@
-Code status:
-------------
+# Hubris
 
-## Hubris: The open source relational database 
+## The open source relational database
 
-Hubris was designed as a drop-in replacement of MySQL(R) with more
+Hubris was designed as a drop-in replacement of MariaDB with more
 features, new storage engines, fewer bugs, and better performance.
 
 Hubris is brought to you by the Hubris Foundation and the Hubris Corporation.
