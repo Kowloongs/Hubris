@@ -46,3 +46,5 @@ storage/innobase/include/univ.i linguist-language=C
 *.result linguist-language=MariaDB\ Test
 *.frm linguist-language=MariaDB\ Table
 *.h.pp linguist-language=C
+
+
